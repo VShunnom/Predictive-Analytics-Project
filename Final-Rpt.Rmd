@@ -1,0 +1,295 @@
+---
+title: "Itec 621 Project"
+author: '"Group 1"'
+date: "05/04/2023"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Table of Content
+
+Proposal.....................................................
+Business Question............................................
+Analytic Question...........................................
+Descriptive Anaylsis.........................................
+Variable Selection..........................................
+Random Forest.............................................
+Boosted Trees..............................................
+
+
+##Descriptive
+
+```{r }
+library(corrplot)
+library(psych)
+library(ggplot2)
+
+Heart.Att <- read.table("Hearts.csv",header = T,sep =",")
+#checking for omitted values
+HeartAtt.omit <- na.omit(Heart.Att)
+HeartAtt.na <- is.na(Heart.Att)
+#number of rows with full data set
+HeartAtt.comp <- nrow(na.omit(Heart.Att))
+
+describe(Heart.Att)
+corr.Heart <-cor(Heart.Att[,1:13])
+corr.mat <- as.matrix(corr.Heart)
+corrplot(corr.mat,method = "ellipse",order =  "hclust")
+
+
+heartAtt.freq <- table(Heart.Att$HeartDisease)#frequency of presence of heart attack to no heart attack
+heartAtt.freq
+heartAtt.percent <- prop.table(heartAtt.freq) * 100# proportion of no heart attack to presence of heart attack
+round(heartAtt.percent,1)
+
+# Histogram of age
+hist(Heart.Att$age, main="Age Distribution", xlab="Age", ylab="Frequency", col="lightblue", border="black")
+
+
+# Create a barplot of the gender distribution
+Count <- table(Heart.Att$sex)
+barplot(Count, main="Gender Distribution", xlab="Gender", ylab="Count", col=c("pink", "lightblue"), border="black", names.arg=c("Female", "Male"), ylim=c(0, max(Count)+2))
+
+#HeartDisease distribution by Gender
+ggplot(data = Heart.Att, aes(x = HeartDisease, fill = sex)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Distribution of Heart Diseases", x = "Heart Disease", y = "Count") +
+  theme_minimal()
+
+# Create scatter plots in pairs for the continuous variables
+pairs(Heart.Att[,c(1,4,5,8,10)], main="Scatter Plots of Continuous Variables")
+
+#boxplot
+par(mfrow=c(2,3))
+ ggplot(Heart.Att, aes(x = factor(HeartDisease), y = age, fill = factor(HeartDisease))) +
+  geom_boxplot() +
+  labs(title = "Age by Heart Disease Diagnosis", x = "Heart Disease Diagnosis", y = "Age") +
+  scale_fill_discrete(name = "Heart Disease Diagnosis")
+
+ ggplot(Heart.Att, aes(x = as.factor(HeartDisease), y = chol, fill = as.factor(HeartDisease))) +
+  geom_boxplot() +
+  labs(title = "Distribution of Cholesterol", x = "Heart Disease Diagnosis", y = "Cholesterol") +
+  scale_fill_manual(values = c("red", "blue"), name = "Heart Disease Diagnosis", labels = c("No", "Yes"))
+
+ggplot(Heart.Att, aes(x = factor(HeartDisease), y = oldpeak, fill = factor(HeartDisease))) +
+  geom_boxplot() +
+  labs(title = "Distribution of Oldpeak", x = "Heart Disease Diagnosis", y = "Oldpeak") +
+  scale_fill_manual(values = c("blue", "red"), name = "Heart Disease Diagnosis", labels = c("No", "Yes"))
+
+ggplot(Heart.Att, aes(x = factor(HeartDisease ), y = Heart.Att$thalach, fill = factor(HeartDisease))) +
+  geom_boxplot() +
+  labs(title = "Distribution of MaxHR", x = "Heart Disease Diagnosis", y = "MaxHR") +
+  scale_fill_manual(values = c("blue", "red"), name = "Heart Disease", labels = c("No", "Yes"))
+
+ggplot(Heart.Att, aes(x = factor(HeartDisease), y = trestbps, fill = factor(HeartDisease))) +
+  geom_boxplot() +
+  labs(title = "Resting Blood Pressure by Heart Disease Diagnosis", x = "Heart Disease Diagnosis", y = "Resting Blood Pressure") +
+  scale_fill_discrete(name = "Heart Disease Diagnosis")
+
+```
+#Logit
+```{r }
+Heart.Att <- read.table("Hearts.csv",header = T,sep = ",")
+heart.logit.full <- glm(HeartDisease ~ ., family = binomial(link = "logit"), data = Heart.Att)
+summary(heart.logit.full)
+
+nulldev.logit <- heart.logit.full$null.deviance
+resdev.logit <- heart.logit.full$deviance
+Dev.Rsq <- (nulldev.logit - resdev.logit) /nulldev.logit
+Dev.Rsq
+paste("The Deviance explained is",Dev.Rsq)
+"n/"
+heart.logit.small <- glm(HeartDisease ~sex + cp + trestbps + restecg + 
+    thalach + exang + oldpeak + slope + ca + thal, family = binomial(link = "logit"), data = Heart.Att)
+summary(heart.logit.small)
+nulldev.logits <- heart.logit.small$null.deviance
+resdev.logits <- heart.logit.small$deviance
+Dev.Rsq.s <- (nulldev.logits - resdev.logits) /nulldev.logits
+Dev.Rsq.s
+
+library(car)
+library(klaR)
+library(boot)
+library(caret)
+library(ROCR)
+cond.index(heart.logit.small,data = Heart.Att)
+vif(heart.logit.small)
+
+
+library(caret)
+set.seed(1)
+thresh <- 0.90
+train <- sample(1:nrow(Heart.Att),thresh*nrow(Heart.Att))
+train.heart <- Heart.Att[train,]
+test.heart <- Heart.Att[-train,]
+heart.logit.full <- glm(HeartDisease~.,family = binomial(link = "logit"),data = train.heart)
+logit.heart.predict.f <- predict(heart.logit.full,test.heart)
+logit.prob.heart.f <- predict(heart.logit.full,test.heart,type = "response")
+logit.prob.heart.f
+thres <- 0.3
+logit.predict.heart.f <- ifelse(logit.prob.heart.f>0.3,1,0)
+conf.mat <- table("Predicted"=logit.predict.heart.f,"Actual"=test.heart$HeartDisease)
+colnames(conf.mat) <- c("No","Yes")
+rownames(conf.mat) <- c("No","Yes")
+conf.mat
+accuracy <- mean(logit.predict.heart.f == test.heart$HeartDisease)
+print(paste("Accuracy: ", round(accuracy, 3)))
+
+logit.heart.predict.f <- predict(heart.logit.full,test.heart)
+odds <- exp(logit.heart.predict.f)
+odds
+
+
+set.seed(1)
+thresh <- 0.90
+train <- sample(1:nrow(Heart.Att),thresh*nrow(Heart.Att))
+train.heart <- Heart.Att[train,]
+test.heart <- Heart.Att[-train,]
+heart.logit.small <- glm(HeartDisease~sex + cp + trestbps + restecg + 
+    thalach + exang + oldpeak + slope + ca + thal,family = binomial(link = "logit"),data = train.heart)
+logit.heart.predict.s <- predict(heart.logit.small,test.heart)
+logit.prob.heart.s <- predict(heart.logit.small,test.heart,type = "response")
+thres <- 0.3
+logit.predict.heart.s <- ifelse(logit.prob.heart.s>0.3,1,0)
+conf.mat <- table("Predicted"=logit.predict.heart.s,"Actual"=test.heart$HeartDisease)
+colnames(conf.mat) <- c("No","Yes")
+rownames(conf.mat) <- c("No","Yes")
+conf.mat
+accuracy <- mean(logit.predict.heart.s == test.heart$HeartDisease)
+print(paste("Accuracy: ", round(accuracy, 3)))
+
+logit.heart.predict.f <- predict(heart.logit.small,test.heart)
+odds <- exp(logit.heart.predict.s)
+odds
+
+rocr.pred.logit <- prediction(logit.prob.heart.s, test.heart$HeartDisease)
+
+rocr.perf.logit <- performance(rocr.pred.logit, measure = "tpr", x.measure = "fpr")
+plot(rocr.perf.logit, colorize = TRUE)
+
+
+auc_roc <- performance(rocr.pred.logit, measure = "auc")
+auc_roc_value <- as.numeric(auc_roc@y.values)
+print(paste("AUC-ROC =", round(auc_roc_value, 3)))
+
+```
+#Variable Selection
+```{r }
+heart.full <- glm(HeartDisease ~ ., family = binomial(link = "logit"), data = Heart.Att)
+heart.null <- glm(HeartDisease ~ 1, family = binomial(link = "logit"), data = Heart.Att)
+heart.step.backward <- step(heart.full,scope=list(lower = heart.null, upper = heart.full), direction = "both",test="F")
+summary(heart.step.backward)
+```
+#Random Forest
+```{r }
+library(randomForest)
+library(caret)
+library(ROCR)
+library(MASS) 
+set.seed(1) 
+Heart.Att$HeartDisease<- as.factor(Heart.Att$HeartDisease)
+rf.heart.full <- randomForest(HeartDisease ~ ., data = Heart.Att, mtry = 13, importance = T)
+rf.heart.full
+plot(rf.heart.full) 
+m <- 13
+varImpPlot(rf.heart.full, type=1, main = paste("Random Forest Tree with mtry =", m))
+importance(rf.heart.full) 
+
+
+set.seed(1) 
+Heart.Att$HeartDisease<- as.factor(Heart.Att$HeartDisease)
+rf.heart.small <- randomForest(HeartDisease ~  sex + cp + trestbps + restecg + thalach + exang + oldpeak + slope + ca + thal,data = Heart.Att, mtry = 10, importance = T)
+rf.heart.small
+plot(rf.heart.small) 
+m <- 10
+varImpPlot(rf.heart.small, type=1, main = paste("Random Forest Tree with mtry =", m))
+importance(rf.heart.small) 
+
+
+set.seed(1)
+split.rf <- sample(1:nrow(Heart.Att), round(0.8 * nrow(Heart.Att)))
+train <- Heart.Att[split.rf, ]
+test <- Heart.Att[-split.rf, ]
+rf.model.full <- randomForest(HeartDisease ~ ., data = train)
+predicted.probs.full <- predict(rf.model.full, newdata = test, type = "prob")
+pred <- prediction(predicted.probs.full[, 2], test$HeartDisease)
+perf <- performance(pred, "tpr", "fpr")
+plot(perf, colorize = T)
+
+auc <- performance(pred, "auc")
+auc.name <- auc@y.name[[1]]
+auc.value <- round(auc@y.values[[1]], digits = 3)
+paste(auc.name, "is", auc.value)
+
+
+set.seed(1)
+rf.model.small <- randomForest(HeartDisease ~ sex + cp + trestbps + restecg + thalach + exang + oldpeak + slope + ca + thal, data = train)
+predicted.probs.small <- predict(rf.model.small, newdata = test, type = "prob")
+pred <- prediction(predicted.probs.small[, 2], test$HeartDisease)
+perf <- performance(pred, "tpr", "fpr")
+plot(perf, colorize = T)
+
+auc <- performance(pred, "auc")
+auc.name <- auc@y.name[[1]]
+auc.value <- round(auc@y.values[[1]], digits = 3)
+paste(auc.name, "is", auc.value)
+```
+#Boosted Trees
+```{r }
+library(gbm)
+library(ROCR)
+boost.heart <- gbm(HeartDisease ~ ., data = Heart.Att, distribution = "bernoulli", shrinkage = 0.01,cv.folds = 10, n.trees = 500, interaction.depth = 4) 
+boost.heart
+best.num.trees <- which.min(boost.heart$cv.error)
+min.10FCV.error <- round(min(boost.heart$cv.error),digits = 4)
+
+paste("Min 10FCV Test Error =", min.10FCV.error,"at", best.num.trees, "trees")
+
+plot(boost.heart$cv.error, type = "l",xlab = "Number of Trees", ylab = "CV Test MSE")
+summary(boost.heart)
+
+
+set.seed(1)
+split.boost <- sample(1:nrow(Heart.Att), round(0.7 * nrow(Heart.Att)))
+train <- Heart.Att[split.boost, ]
+test <- Heart.Att[-split.boost, ]
+
+
+boosted.model <- gbm(HeartDisease ~ ., data = train, distribution = "bernoulli", n.trees = 500, interaction.depth = 3, shrinkage = 0.01)
+
+predicted.probs.boosted <- predict(boosted.model, newdata = test, type = "response", n.trees = 500)
+
+pred <- prediction(predicted.probs.boosted, test$HeartDisease)
+perf <- performance(pred, "tpr", "fpr")
+plot(perf, colorize = T)
+
+auc <- performance(pred, "auc")
+auc.name <- auc@y.name[[1]]
+auc.value <- round(auc@y.values[[1]], digits = 3)
+paste(auc.name, "is", auc.value)
+
+predicted_probs <- predict(boosted.model, newdata = test, type = "response")
+threshold <- 0.3
+predicted.class <- ifelse(predicted.probs.boosted > threshold, 1, 0)
+conf.matrix <- table(Predicted = predicted.class, Actual =test$HeartDisease)
+print(conf.matrix)
+
+cm.boost <- table(Predicted = predicted.class, Actual = test$HeartDisease)
+sensitivity <- cm.boost[2, 2] / (cm.boost[2, 2] + cm.boost[1, 2])
+specificity <- cm.boost[1, 1] / (cm.boost[1, 1] + cm.boost[2, 1])
+FPR <- cm.boost[2, 1] / (cm.boost[2, 1] + cm.boost[1, 1])
+accuracy <- sum(diag(cm.boost)) / sum(cm.boost)
+cat("Sensitivity:", sensitivity, "\n")
+cat("Specificity:", specificity, "\n")
+cat("False Positive Rate (FPR):", FPR, "\n")
+cat("Accuracy:", accuracy, "\n")
+```
+#Appendix
+```{r}
+fig
+```
+
+
